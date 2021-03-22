@@ -11,7 +11,7 @@ RUN apt-get update \
 
 RUN pecl install mcrypt-1.0.3 && docker-php-ext-enable mcrypt
 
-RUN docker-php-ext-configure ldap --with-libdir=lib/aarch64-linux-gnu/
+RUN docker-php-ext-configure ldap --with-libdir=lib/$(lscpu | head -n1 | awk '{print $2}')-linux-gnu/
 
 RUN docker-php-ext-install ldap \
     && rm -rf /var/lib/apt/lists/*
