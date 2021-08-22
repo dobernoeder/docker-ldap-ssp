@@ -1,0 +1,84 @@
+# Use this image refernces if you do not have them on your private registry
+#variables:
+#  CI_BUILD_ARCHS: "linux/amd64,linux/arm64,linux/arm/v7"
+#  CI_DIND_IMAGE: docker:dind
+#  CI_BUILD_IMAGE: registry.gitlab.com/ericvh/docker-buildx-qemu:latest
+#  CI_BUILD_KIT: moby/buildkit:v0.9.0
+#  CI_MULTIARCH_INIT_IMAGE: multiarch/qemu-user-static
+
+# Use this images when you have them on your own registry, you may adjust paths and tags
+variables:
+  CI_BUILD_ARCHS: "linux/amd64,linux/arm64,linux/arm/v7"
+  CI_DIND_IMAGE: "$CI_REGISTRY/docker-images/docker-dind"
+  CI_BUILD_IMAGE: "$CI_REGISTRY/docker-images/docker-buildx-qemu"
+  CI_BUILD_KIT: "$CI_REGISTRY/docker-images/buildkit"
+  CI_MULTIARCH_INIT_IMAGE: "$CI_REGISTRY/docker-images/multiarch-qemu-user-static"
+
+stages:
+- build
+
+build:
+  image: $CI_BUILD_IMAGE
+  stage: build
+  timeout: 10h
+  services:
+    - name: $CI_DIND_IMAGE
+      alias: docker
+      entrypoint: ["env", "-u", "DOCKER_HOST"]
+      command: ["dockerd-entrypoint.sh"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375/
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  retry: 2
+  before_script:
+    - echo "==============================================================================================================================="
+    - echo " $(date +%F)   $(date +%T)  --- Project      $CI_PROJECT_NAME"
+    - echo "                                Branch       $CI_COMMIT_BRANCH"
+    - echo "                                Job-Start    $CI_JOB_STARTED_AT"
+    - echo " "
+    - echo " Commited by  $CI_COMMIT_AUTHOR"
+    - echo " Commit       $CI_COMMIT_MESSAGE"
+    - echo " "
+    - echo "==============================================================================================================================="
+    - echo " "
+    - echo " Login to Registry $CI_REGISTRY"
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+    - export PREVIOUS_VERSION=$(perl -lne 'print "${1}" if /^##\s\[(\d\.\d\.\d)\]\s-\s\d{4}(?:-\d{2}){2}\s*$/' CHANGELOG.md | sed -n '2 p')
+    - echo " Ensure execution of other binary formats is enabled in the kernel and prepare multi-arch environment for build..."
+    - update-binfmts --enable
+    - docker run --rm --privileged $CI_MULTIARCH_INIT_IMAGE --reset -p yes
+    - echo " ------------------------------------------------------------------------------------------------------------------------------"
+    - echo " Prepare the multiarch build environment. Use custom buildkit:"
+    - echo " $CI_BUILD_KIT"
+    - BUILD_CONTAINER=`docker buildx create --driver docker-container --use --buildkitd-flags '--oci-worker-gc --oci-worker-gc-keepstorage 40960' --driver-opt image=$CI_BUILD_KIT`
+    - BUILD_CONTAINER="buildx_buildkit_""$BUILD_CONTAINER""0"
+    - docker buildx inspect --bootstrap
+    - echo " "
+    - echo " ------------------------------------------------------------------------------------------------------------------------------"
+
+  script:
+    - echo " Last released version is $PREVIOUS_VERSION"
+    - echo " Try to use cached image layers from $PREVIOUS_VERSION and $CI_COMMIT_REF_NAME-cache, if they exist..."
+    - echo " "
+    - echo " List multiarch build environment information:"
+    - docker buildx ls
+    - echo " "
+    - echo " ==================================================  START MULTIARCH BUILD  =================================================== "
+    - echo " "
+    - echo " "
+    - >
+      docker buildx build
+      --cache-from type=registry,ref=$CI_REGISTRY_IMAGE:$PREVIOUS_VERSION
+      --cache-from type=registry,ref=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-cache
+      --cache-to type=registry,ref=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-cache,mode=max
+      --platform $CI_BUILD_ARCHS --progress plain --pull
+      --file Dockerfile
+      --tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME"
+      --push
+      .
+
+  after_script:
+    - docker system prune -af
+    - docker logout $CI_REGISTRY
+
