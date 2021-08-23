@@ -22,7 +22,7 @@ RUN arch=$(lscpu | head -n1 | awk '{print $2}') && gnu_binaries="lib/$arch-linux
 RUN docker-php-ext-install ldap \
     && rm -rf /var/lib/apt/lists/*
 
- Install ssp
+# Install ssp
 RUN curl -L https://ltb-project.org/archives/${SSP_PACKAGE}-${SSP_VERSION}.tar.gz \
     -o ssp.tar.gz && tar xf ssp.tar.gz -C /var/www/html && rm -f ssp.tar.gz \
     && mv /var/www/html/${SSP_PACKAGE}-${SSP_VERSION}/* /var/www/html/ && rm -rf /var/www/html/${SSP_PACKAGE}-${SSP_VERSION}
