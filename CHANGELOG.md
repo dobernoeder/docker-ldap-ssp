@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.1] - 2021-08-23
+### Added
+- Fixed problems with multiarch build and made it better compatible
+
+### Changed
+- Extended .gitlab-ci.yml to use more efficient caching
+
+
 ## [1.3.0] - 2021-03-22
 ### Added
 - Added .gitlab-ci.yml for GitLab Pipelines
