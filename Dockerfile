@@ -17,7 +17,6 @@ RUN apt-get update \
 RUN pecl install mcrypt-1.0.3 && docker-php-ext-enable mcrypt
 
 RUN arch=$(lscpu | head -n1 | awk '{print $2}') && gnu_binaries="lib/$arch-linux-gnu/" && if [ $arch = "armv7l" ]; then gnu_binaries="lib/arm-linux-gnueabihf/"; fi && docker-php-ext-configure ldap --with-libdir=$gnu_binaries
-#RUN arch=$(lib/$(lscpu | head -n1 | awk '{print $2}') && gnu_binaries="$arch-linux-gnu/") && if [ $arch = "armv7l" ]; then gnu_binaries="lib/arm-linux-gnueabihf/" && docker-php-ext-configure ldap --with-libdir=$(gnu_binaries)
 
 RUN docker-php-ext-install ldap \
     && rm -rf /var/lib/apt/lists/*
