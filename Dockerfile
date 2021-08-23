@@ -11,16 +11,16 @@ RUN apt-get update \
 
 RUN pecl install mcrypt-1.0.3 && docker-php-ext-enable mcrypt
 
-RUN docker-php-ext-configure ldap --with-libdir=lib/$(lscpu | head -n1 | awk '{print $2}')-linux-gnu/
+#RUN docker-php-ext-configure ldap --with-libdir=lib/$(lscpu | head -n1 | awk '{print $2}')-linux-gnu/
 
-RUN docker-php-ext-install ldap \
-    && rm -rf /var/lib/apt/lists/*
+#RUN docker-php-ext-install ldap \
+#    && rm -rf /var/lib/apt/lists/*
 
 # Install ssp
-RUN curl -L https://ltb-project.org/archives/${SSP_PACKAGE}-${SSP_VERSION}.tar.gz \
-    -o ssp.tar.gz && tar xf ssp.tar.gz -C /var/www/html && rm -f ssp.tar.gz \
-    && mv /var/www/html/${SSP_PACKAGE}-${SSP_VERSION}/* /var/www/html/ && rm -rf /var/www/html/${SSP_PACKAGE}-${SSP_VERSION}
+#RUN curl -L https://ltb-project.org/archives/${SSP_PACKAGE}-${SSP_VERSION}.tar.gz \
+#    -o ssp.tar.gz && tar xf ssp.tar.gz -C /var/www/html && rm -f ssp.tar.gz \
+#    && mv /var/www/html/${SSP_PACKAGE}-${SSP_VERSION}/* /var/www/html/ && rm -rf /var/www/html/${SSP_PACKAGE}-${SSP_VERSION}
 
-RUN chown -R www-data:www-data /var/www/html/
+#RUN chown -R www-data:www-data /var/www/html/
 
-EXPOSE 80
+#EXPOSE 80
