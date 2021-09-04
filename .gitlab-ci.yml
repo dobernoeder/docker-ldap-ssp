@@ -43,7 +43,7 @@ build:
   retry: 2
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
-    - export PREVIOUS_VERSION=$(perl -lne 'print "${1}" if /^##\s\[(\d\.\d\.\d)\]\s-\s\d{4}(?:-\d{2}){2}\s*$/' CHANGELOG.md | sed '2 p')
+    - export PREVIOUS_VERSION=$(perl -lne 'print "${1}" if /^##\s\[(\d\.\d\.\d)\]\s-\s\d{4}(?:-\d{2}){2}\s*$/' CHANGELOG.md | head -n1)
     - update-binfmts --enable
     - docker run --rm --privileged $CI_MULTIARCH_INIT_IMAGE --reset -p yes
     - BUILD_CONTAINER=`docker buildx create --driver docker-container --use --buildkitd-flags '--oci-worker-gc --oci-worker-gc-keepstorage 40960' --driver-opt image=$CI_BUILD_KIT`
