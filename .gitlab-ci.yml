@@ -1,21 +1,31 @@
-# Use this image refernces if you do not have them on your private registry
+# GitLab CI Build Script for Multi-Arch Docker images
+# Version: 2.4
+# Maintainer: David Obernöder
+# ------------------------------------------------------------------------
+# You need to set several Variables to use this script. You may want to specify the following images as global vars in your GitLab instance.
+#
+# Use this image references if you do not have them on your private registry
+#
 #variables:
-#  CI_BUILD_ARCHS: "linux/amd64,linux/arm64,linux/arm/v7"
 #  CI_DIND_IMAGE: docker:dind
 #  CI_BUILD_IMAGE: registry.gitlab.com/ericvh/docker-buildx-qemu:latest
 #  CI_BUILD_KIT: moby/buildkit:v0.9.0
 #  CI_MULTIARCH_INIT_IMAGE: multiarch/qemu-user-static
+#  CI_BUILD_ARCHS: "linux/amd64,linux/arm64,linux/arm/v7"
 
 # Use this images when you have them on your own registry, you may adjust paths and tags
 variables:
-  CI_BUILD_ARCHS: "linux/amd64,linux/arm64,linux/arm/v7"
   CI_DIND_IMAGE: "$CI_REGISTRY/docker-images/docker-dind"
   CI_BUILD_IMAGE: "$CI_REGISTRY/docker-images/docker-buildx-qemu"
   CI_BUILD_KIT: "$CI_REGISTRY/docker-images/buildkit"
   CI_MULTIARCH_INIT_IMAGE: "$CI_REGISTRY/docker-images/multiarch-qemu-user-static"
+  CI_BUILD_ARCHS: "linux/amd64,linux/arm64,linux/arm/v7"
+
 
 stages:
 - build
+- push2repository
+
 
 build:
   image: $CI_BUILD_IMAGE
@@ -32,56 +42,159 @@ build:
     DOCKER_TLS_CERTDIR: ""
   retry: 2
   before_script:
-    - echo "==============================================================================================================================="
-    - echo " $(date +%F)   $(date +%T)  --- Project      $CI_PROJECT_NAME"
-    - echo "                                Branch       $CI_COMMIT_BRANCH"
-    - echo "                                Job-Start    $CI_JOB_STARTED_AT"
-    - echo " "
-    - echo " Commited by  $CI_COMMIT_AUTHOR"
-    - echo " Commit       $CI_COMMIT_MESSAGE"
-    - echo " "
-    - echo "==============================================================================================================================="
-    - echo " "
-    - echo " Login to Registry $CI_REGISTRY"
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
-    - export PREVIOUS_VERSION=$(perl -lne 'print "${1}" if /^##\s\[(\d\.\d\.\d)\]\s-\s\d{4}(?:-\d{2}){2}\s*$/' CHANGELOG.md | sed -n '2 p')
-    - echo " Ensure execution of other binary formats is enabled in the kernel and prepare multi-arch environment for build..."
+    - export PREVIOUS_VERSION=$(perl -lne 'print "${1}" if /^##\s\[(\d\.\d\.\d)\]\s-\s\d{4}(?:-\d{2}){2}\s*$/' CHANGELOG.md | sed '2 p')
     - update-binfmts --enable
     - docker run --rm --privileged $CI_MULTIARCH_INIT_IMAGE --reset -p yes
-    - echo " ------------------------------------------------------------------------------------------------------------------------------"
-    - echo " Prepare the multiarch build environment. Use custom buildkit:"
-    - echo " $CI_BUILD_KIT"
     - BUILD_CONTAINER=`docker buildx create --driver docker-container --use --buildkitd-flags '--oci-worker-gc --oci-worker-gc-keepstorage 40960' --driver-opt image=$CI_BUILD_KIT`
     - BUILD_CONTAINER="buildx_buildkit_""$BUILD_CONTAINER""0"
     - docker buildx inspect --bootstrap
-    - echo " "
-    - echo " ------------------------------------------------------------------------------------------------------------------------------"
-
   script:
-    - echo " Last released version is $PREVIOUS_VERSION"
-    - echo " Try to use cached image layers from $PREVIOUS_VERSION and $CI_COMMIT_REF_NAME-cache, if they exist..."
-    - echo " "
-    - echo " List multiarch build environment information:"
     - docker buildx ls
-    - echo " "
-    - echo " ==================================================  START MULTIARCH BUILD  =================================================== "
-    - echo " "
-    - echo " "
     - >
       docker buildx build
+      --cache-from type=registry,ref=$CI_REGISTRY_IMAGE:$PREVIOUS_VERSION
+      --cache-from type=registry,ref=$CI_REGISTRY_IMAGE:latest
       --cache-from type=registry,ref=$CI_REGISTRY_IMAGE:$PREVIOUS_VERSION-cache
-      --cache-from type=registry,ref=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-cache
+      --cache-from type=registry,ref=$CI_REGISTRY_IMAGE:latest-cache
       --cache-from type=registry,ref=$CI_REGISTRY_IMAGE:master-cache
       --cache-from type=registry,ref=$CI_REGISTRY_IMAGE:test-cache
       --cache-from type=registry,ref=$CI_REGISTRY_IMAGE:lab-cache
+      --cache-from type=registry,ref=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-cache
       --cache-to type=registry,ref=$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-cache,mode=max
       --platform $CI_BUILD_ARCHS --progress plain --pull
       --file Dockerfile
       --tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME"
       --push
       .
-
   after_script:
     - docker system prune -af
     - docker logout $CI_REGISTRY
 
+
+push2repo latest:
+  image: $CI_BUILD_IMAGE
+  stage: push2repository
+  timeout: 4h
+  only:
+    - master
+  services:
+    - name: $CI_DIND_IMAGE
+      alias: docker
+      entrypoint: ["env", "-u", "DOCKER_HOST"]
+      command: ["dockerd-entrypoint.sh"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375/
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  retry: 2
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+  script:
+    - pma2docker "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME" "$CI_REGISTRY_IMAGE:latest"
+  after_script:
+    - docker system prune -af
+    - docker logout $CI_REGISTRY
+
+push2repo singleImage:
+  image: $CI_BUILD_IMAGE
+  stage: push2repository
+  timeout: 4h
+  only:
+    - /^[0-9]+\.[0-9]+\.?[0-9]*$/
+    - test
+  services:
+    - name: $CI_DIND_IMAGE
+      alias: docker
+      entrypoint: ["env", "-u", "DOCKER_HOST"]
+      command: ["dockerd-entrypoint.sh"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375/
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  retry: 2
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+  script:
+    - pma2docker --only-single-images "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME" "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME"
+  after_script:
+    - docker system prune -af
+    - docker logout $CI_REGISTRY
+
+push2repo LAB Build:
+  image: $CI_BUILD_IMAGE
+  stage: push2repository
+  timeout: 4h
+  only:
+    - lab
+  services:
+    - name: $CI_DIND_IMAGE
+      alias: docker
+      entrypoint: ["env", "-u", "DOCKER_HOST"]
+      command: ["dockerd-entrypoint.sh"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375/
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  retry: 2
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+  script:
+    - pma2docker "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME" "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA"
+  after_script:
+    - docker system prune -af
+    - docker logout $CI_REGISTRY
+
+push2docker Image:
+  image: $CI_BUILD_IMAGE
+  stage: push2repository
+  timeout: 4h
+  only:
+    - /^[0-9]+\.[0-9]+\.?[0-9]*$/
+    - test
+  services:
+    - name: $CI_DIND_IMAGE
+      alias: docker
+      entrypoint: ["env", "-u", "DOCKER_HOST"]
+      command: ["dockerd-entrypoint.sh"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375/
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  retry: 2
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+    - echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USER" --password-stdin
+  script:
+    - pma2docker "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME" "$DOCKERHUB_USER/$CI_PROJECT_NAME:$CI_COMMIT_REF_NAME"
+  after_script:
+    - docker system prune -af
+    - docker logout $CI_REGISTRY
+    - docker logout
+
+push2docker latest:
+  image: $CI_BUILD_IMAGE
+  stage: push2repository
+  timeout: 4h
+  only:
+    - master
+  services:
+    - name: $CI_DIND_IMAGE
+      alias: docker
+      entrypoint: ["env", "-u", "DOCKER_HOST"]
+      command: ["dockerd-entrypoint.sh"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375/
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+  retry: 2
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+    - echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USER" --password-stdin
+  script:
+    - pma2docker "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME" "$DOCKERHUB_USER/$CI_PROJECT_NAME:latest"
+  after_script:
+    - docker system prune -af
+    - docker logout $CI_REGISTRY
+    - docker logout
+ 
